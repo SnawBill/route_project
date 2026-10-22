@@ -41,6 +41,11 @@ class RoadNetwork:
         self._kx = 111_320.0 * math.cos(math.radians(sum(lat) / len(lat)))
         self._ky = 110_574.0
         self._xy = [(x * self._kx, y * self._ky) for x, y in zip(lon, lat)]
+        self._cell_size = max_snap_m
+        self._grid = {}
+        for i, (x, y) in enumerate(self._xy):
+            cell = (math.floor(x / self._cell_size), math.floor(y / self._cell_size))
+            self._grid.setdefault(cell, []).append(i)
         self.bbox = (min(lon), min(lat), max(lon), max(lat))
 
     @classmethod
@@ -54,8 +59,18 @@ class RoadNetwork:
         if not (w - margin <= lon <= e + margin and s - margin <= lat <= n + margin):
             raise RoutingError("Точка вне зоны покрытия дорожной сети (Владивосток)")
         x, y = lon * self._kx, lat * self._ky
+        cx, cy = math.floor(x / self._cell_size), math.floor(y / self._cell_size)
+        candidates = [
+            i
+            for dx in (-1, 0, 1)
+            for dy in (-1, 0, 1)
+            for i in self._grid.get((cx + dx, cy + dy), ())
+        ]
+        if not candidates:
+            raise RoutingError("Рядом с точкой нет дорог. Выберите точку ближе к дороге.")
         dist2, idx = min(
-            (((nx - x) ** 2 + (ny - y) ** 2, i) for i, (nx, ny) in enumerate(self._xy)),
+            (((self._xy[i][0] - x) ** 2 + (self._xy[i][1] - y) ** 2, i)
+             for i in candidates),
             key=lambda item: item[0],
         )
         dist = math.sqrt(dist2)

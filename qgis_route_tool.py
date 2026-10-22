@@ -24,9 +24,10 @@ import urllib.request
 
 import processing
 from qgis.core import (
-    QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsFeature, QgsGeometry,
-    QgsLineSymbol, QgsPointXY, QgsProject, QgsRasterLayer, QgsRectangle,
-    QgsSimpleLineSymbolLayer, QgsVectorLayer,
+    QgsApplication, QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsFeature,
+    QgsGeometry, QgsLineSymbol, QgsPointXY, QgsProcessingAlgRunnerTask,
+    QgsProcessingContext, QgsProcessingFeedback, QgsProject, QgsRasterLayer,
+    QgsRectangle, QgsSimpleLineSymbolLayer, QgsTask, QgsVectorLayer,
 )
 from qgis.gui import QgsMapToolEmitPoint, QgsVertexMarker
 from qgis.PyQt.QtCore import Qt
@@ -159,10 +160,10 @@ def route_via_service(a, b):
     return coords, props["distance_km"], props["duration_min"]
 
 
-def route_via_qgis(a, b, roads_utm):
+def qgis_route_parameters(a, b, roads_utm):
     to_utm = QgsCoordinateTransform(WGS84, UTM52N, QgsProject.instance())
     pa, pb = to_utm.transform(a), to_utm.transform(b)
-    result = processing.run("native:shortestpathpointtopoint", {
+    return {
         "INPUT": roads_utm,
         "STRATEGY": 0,
         "DIRECTION_FIELD": "dir",
@@ -174,19 +175,7 @@ def route_via_qgis(a, b, roads_utm):
         "START_POINT": f"{pa.x()},{pa.y()} [EPSG:32652]",
         "END_POINT": f"{pb.x()},{pb.y()} [EPSG:32652]",
         "OUTPUT": "TEMPORARY_OUTPUT",
-    })
-    out = result["OUTPUT"]
-    features = list(out.getFeatures())
-    if not features:
-        raise RouteError("Проезд между этими точками не найден")
-    feat = features[0]
-    geom = QgsGeometry(feat.geometry())
-    km = round(geom.length() / 1000.0, 2)
-    geom.transform(QgsCoordinateTransform(UTM52N, WGS84, QgsProject.instance()))
-    coords = [(p.x(), p.y()) for p in (geom.asMultiPolyline()[0] if geom.isMultipart()
-                                        else geom.asPolyline())]
-    minutes = max(1, round(km / AVG_CITY_SPEED_KMH * 60))
-    return coords, km, minutes
+    }
 
 
 class RouteTool(QgsMapToolEmitPoint):
@@ -197,8 +186,14 @@ class RouteTool(QgsMapToolEmitPoint):
         self.roads_utm = roads_utm
         self.points = []
         self.markers = []
+        self.busy = False
+        self.task = None
+        self.context = None
 
     def canvasReleaseEvent(self, event):
+        if self.busy:
+            iface.messageBar().pushInfo("Маршрут", "Расчёт уже выполняется…")
+            return
         if event.button() == Qt.RightButton:
             self.reset()
             return
@@ -240,17 +235,59 @@ class RouteTool(QgsMapToolEmitPoint):
 
     def build_route(self):
         a, b = self.points
-        try:
-            if self.backend == "native":
-                coords, km, minutes = route_via_qgis(a, b, self.roads_utm)
-                engine = "QGIS (Processing)"
-            else:
-                coords, km, minutes = route_via_service(a, b)
-                engine = "Python-сервис"
-        except RouteError as exc:
-            iface.messageBar().pushWarning("Маршрут", str(exc))
-            self.reset()
+        self.busy = True
+        iface.messageBar().pushInfo("Маршрут", "Рассчитываю маршрут…")
+        if self.backend == "native":
+            algorithm = QgsApplication.processingRegistry().algorithmById(
+                "native:shortestpathpointtopoint")
+            self.context = QgsProcessingContext()
+            self.context.setProject(QgsProject.instance())
+            feedback = QgsProcessingFeedback()
+            self.task = QgsProcessingAlgRunnerTask(
+                algorithm, qgis_route_parameters(a, b, self.roads_utm), self.context, feedback)
+            self.task.executed.connect(self._native_finished)
+        else:
+            self.task = QgsTask.fromFunction(
+                "Расчёт маршрута", lambda task: route_via_service(a, b),
+                on_finished=lambda exception, result=None: self._service_finished(
+                    exception, result, a, b))
+        QgsApplication.taskManager().addTask(self.task)
+
+    def _service_finished(self, exception, result, a, b):
+        if exception:
+            self._failed(exception)
             return
+        self._show_route(result, a, b, "Python-сервис")
+
+    def _native_finished(self, successful, results):
+        if not successful:
+            self._failed(RouteError("Не удалось построить маршрут средствами QGIS"))
+            return
+        out = self.context.getMapLayer(results["OUTPUT"])
+        features = list(out.getFeatures()) if out else []
+        if not features:
+            self._failed(RouteError("Проезд между этими точками не найден"))
+            return
+        geom = QgsGeometry(features[0].geometry())
+        km = round(geom.length() / 1000.0, 2)
+        geom.transform(QgsCoordinateTransform(UTM52N, WGS84, QgsProject.instance()))
+        coords = [(p.x(), p.y()) for p in (geom.asMultiPolyline()[0] if geom.isMultipart()
+                                            else geom.asPolyline())]
+        minutes = max(1, round(km / AVG_CITY_SPEED_KMH * 60))
+        self._show_route((coords, km, minutes), *self.points, "QGIS (Processing)")
+
+    def _failed(self, exception):
+        self.busy = False
+        self.task = None
+        self.context = None
+        iface.messageBar().pushWarning("Маршрут", str(exception))
+        self.reset()
+
+    def _show_route(self, result, a, b, engine):
+        coords, km, minutes = result
+        self.busy = False
+        self.task = None
+        self.context = None
 
         layer = get_route_layer()
         layer.dataProvider().truncate()

@@ -28,7 +28,7 @@ _lock = threading.Lock()
 
 
 def get_network() -> RoadNetwork:
-    """Граф загружается один раз при первом обращении."""
+    """Граф загружается один раз."""
     global _network
     if _network is None:
         with _lock:
@@ -88,5 +88,6 @@ def route():
 
 
 if __name__ == "__main__":
+    get_network()
     app.run(host=os.environ.get("HOST", "127.0.0.1"), port=int(os.environ.get("PORT", "8000")),
             threaded=True)
