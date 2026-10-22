@@ -8,6 +8,15 @@ import networkx as nx
 
 from osm_graph import MAX_SPEED_KMH, haversine_m, load_graph
 
+CITY_AVG_SPEED_KMH = 25.0
+START_DELAY_MIN = 1.0
+
+
+def estimate_duration_min(length_m: float, free_flow_s: float = 0.0) -> int:
+    """Городская оценка времени: свободный поток, но не быстрее 25 км/ч, плюс старт."""
+    city_minutes = length_m / 1000.0 / CITY_AVG_SPEED_KMH * 60.0
+    return max(1, math.ceil(max(free_flow_s / 60.0, city_minutes) + START_DELAY_MIN))
+
 
 class RoutingError(Exception):
     """Ошибка, понятная пользователю. status — HTTP-код для API."""

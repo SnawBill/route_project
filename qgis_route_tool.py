@@ -18,6 +18,7 @@
 Управление: левый клик — поставить точку, правый клик — сбросить.
 """
 import json
+import math
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -44,7 +45,8 @@ ROUTE_LAYER_NAME = "Маршрут"
 WGS84 = QgsCoordinateReferenceSystem("EPSG:4326")
 UTM52N = QgsCoordinateReferenceSystem("EPSG:32652")
 WEB_MERCATOR = QgsCoordinateReferenceSystem("EPSG:3857")
-AVG_CITY_SPEED_KMH = 30.0
+AVG_CITY_SPEED_KMH = 25.0
+START_DELAY_MIN = 1.0
 
 MAP_TIP_HTML = """
 <div style="font-family:'Segoe UI',Arial,sans-serif; min-width:230px; border:1px solid #90caf9;">
@@ -69,6 +71,10 @@ MAP_TIP_HTML = """
 
 class RouteError(Exception):
     pass
+
+
+def estimate_duration_min(distance_km):
+    return max(1, math.ceil(distance_km / AVG_CITY_SPEED_KMH * 60 + START_DELAY_MIN))
 
 
 def ensure_basemap():
@@ -273,7 +279,7 @@ class RouteTool(QgsMapToolEmitPoint):
         geom.transform(QgsCoordinateTransform(UTM52N, WGS84, QgsProject.instance()))
         coords = [(p.x(), p.y()) for p in (geom.asMultiPolyline()[0] if geom.isMultipart()
                                             else geom.asPolyline())]
-        minutes = max(1, round(km / AVG_CITY_SPEED_KMH * 60))
+        minutes = estimate_duration_min(km)
         self._show_route((coords, km, minutes), *self.points, "QGIS (Processing)")
 
     def _failed(self, exception):

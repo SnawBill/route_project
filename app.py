@@ -15,7 +15,7 @@ import threading
 
 from flask import Flask, jsonify, request
 
-from routing import RoadNetwork, RoutingError
+from routing import RoadNetwork, RoutingError, estimate_duration_min
 
 app = Flask(__name__)
 app.json.ensure_ascii = False
@@ -79,7 +79,7 @@ def route():
         "geometry": {"type": "LineString", "coordinates": [list(c) for c in r.coords]},
         "properties": {
             "distance_km": round(r.length_m / 1000, 2),
-            "duration_min": max(1, round(r.time_s / 60)),
+            "duration_min": estimate_duration_min(r.length_m, r.time_s),
             "mode": mode,
             "from": {"lon": a[0], "lat": a[1], "snap_m": round(r.start_snap_m)},
             "to": {"lon": b[0], "lat": b[1], "snap_m": round(r.end_snap_m)},

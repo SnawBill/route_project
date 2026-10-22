@@ -10,7 +10,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import osm_graph
-from routing import RoadNetwork, RoutingError
+from routing import RoadNetwork, RoutingError, estimate_duration_min
 
 LON0, LAT0, STEP = 131.88, 43.10, 0.01   # сетка 6x6 узлов, шаг ~0.8 км по долготе, ~1.1 км по широте
 N = 6
@@ -100,6 +100,9 @@ class RoutingTests(unittest.TestCase):
     def test_fastest_mode(self):
         r = self.net.route(lonlat(0, 0), lonlat(5, 5), mode="fastest")
         self.assertGreater(r.time_s, 0)
+
+    def test_city_duration_is_not_free_flow(self):
+        self.assertEqual(estimate_duration_min(1_000, 60), 4)
 
     def test_roads_geojson(self):
         gj = osm_graph.roads_geojson(self.raw)
