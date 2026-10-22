@@ -180,8 +180,8 @@ def route_via_qgis(a, b, roads_utm):
     if not features:
         raise RouteError("Проезд между этими точками не найден")
     feat = features[0]
-    km = round(float(result["TRAVEL_COST"]) / 1000.0, 2)
     geom = QgsGeometry(feat.geometry())
+    km = round(geom.length() / 1000.0, 2)
     geom.transform(QgsCoordinateTransform(UTM52N, WGS84, QgsProject.instance()))
     coords = [(p.x(), p.y()) for p in (geom.asMultiPolyline()[0] if geom.isMultipart()
                                         else geom.asPolyline())]
