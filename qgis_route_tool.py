@@ -15,7 +15,7 @@
     start("service")                                  # через Python-сервис
     start("native", r"C:\\путь\\data\\roads.geojson")   # встроенными средствами QGIS
 
-Управление: левый клик — поставить точку, правый клик — сбросить.
+Управление: левый клик — поставить точку, кнопка на панели или правый клик — сбросить.
 """
 import json
 import math
@@ -33,6 +33,7 @@ from qgis.core import (
 from qgis.gui import QgsMapToolEmitPoint, QgsVertexMarker
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QColor
+from qgis.PyQt.QtWidgets import QStyle
 from qgis.utils import iface
 
 try:
@@ -317,11 +318,39 @@ class RouteTool(QgsMapToolEmitPoint):
 
 
 _tool = None
+_clear_action = None
+
+
+def clear_route(checked=False):
+    if _tool is None:
+        return
+    if _tool.busy:
+        iface.messageBar().pushInfo("Маршрут", "Дождитесь окончания расчёта.")
+        return
+    _tool.reset()
+    iface.messageBar().pushSuccess("Маршрут", "Маршрут очищен.")
+
+
+def install_clear_action():
+    action = iface.mainWindow().findChild(QAction, "routeProjectClearAction")
+    if action is None:
+        icon = iface.mainWindow().style().standardIcon(QStyle.SP_DialogResetButton)
+        action = QAction(icon, "Очистить маршрут", iface.mainWindow())
+        action.setObjectName("routeProjectClearAction")
+        action.setToolTip("Очистить маршрут и выбранные точки")
+        iface.addToolBarIcon(action)
+    else:
+        try:
+            action.triggered.disconnect()
+        except TypeError:
+            pass
+    action.triggered.connect(clear_route)
+    return action
 
 
 def start(backend="service", roads_geojson=None):
     """backend: 'service' или 'native'. Для 'native' укажите путь к roads.geojson."""
-    global _tool
+    global _tool, _clear_action
     if backend not in ("service", "native"):
         raise ValueError("backend должен быть 'service' или 'native'")
     roads_utm = None
@@ -335,6 +364,7 @@ def start(backend="service", roads_geojson=None):
     canvas = iface.mapCanvas()
     _tool = RouteTool(canvas, backend, roads_utm)
     canvas.setMapTool(_tool)
+    _clear_action = install_clear_action()
     iface.messageBar().pushInfo(
         "Маршрут", "Кликните точку A и точку B на карте Владивостока (правый клик — сброс).")
     return _tool
